@@ -4,9 +4,7 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.*;
-import org.apache.zookeeper.data.Stat;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
@@ -19,32 +17,23 @@ import java.util.concurrent.*;
  **/
 
 @Slf4j
-public class ZookeeperLock {
-    private static ZooKeeper zk;
+public class ZookeeperLock2 {
     private static CuratorFramework client;
 
     private static final String LOCK_KEY = "/DB_ZOOKEEPER_LOCK_";
     private static final String SUFFIX = "/LOCK";
 
+    private static ExecutorService executor = Executors.newFixedThreadPool(20);
+
     static {
-        try {
-            RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
-            client =
-                    CuratorFrameworkFactory.newClient(
-                            "localhost:2181",
-                            5000,
-                            3000,
-                            retryPolicy);
-            client.start();
-            zk = new ZooKeeper("127.0.0.1:2181", 2000, new Watcher() {
-                @Override
-                public void process(WatchedEvent watchedEvent) {
-                    System.out.println("zookeeper分布式锁");
-                }
-            });
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+        client =
+                CuratorFrameworkFactory.newClient(
+                        "localhost:2181",
+                        5000,
+                        3000,
+                        retryPolicy);
+        client.start();
     }
 
     /**
@@ -52,15 +41,15 @@ public class ZookeeperLock {
      * @author: dengbin
      * @date: 2018/11/14 下午2:43
      */
-    public static String lock(String key, String value) throws KeeperException, InterruptedException {
+    public static String lock(String key, String value) throws Exception {
         //拼接节点全路径
         String nodeName = key + SUFFIX;
-        String res = zk.create(nodeName, value.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+        String res = client.create().creatingParentsIfNeeded().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(nodeName, value.getBytes());
+        log.info("res:{}", res);
         while (true) {
             //获取父节点下的全部子节点，判断自己是否是第一个，若不是，则监听自己前面的节点删除事件
-            List<String> children = zk.getChildren(key, false);
+            List<String> children = client.getChildren().forPath(key);
             Collections.sort(children);
-            log.info("", children);
             if (res.contains(children.get(0))) {
                 log.info("success {}", res);
                 return res;
@@ -72,10 +61,7 @@ public class ZookeeperLock {
                 String pre = children.get(index - 1);
                 log.info("index:{} pre:{}", index, pre);
                 try {
-                    zk.getData(key + "/" + pre, watchedEvent -> {
-                        countDownLatch.countDown();
-                        ;
-                    }, new Stat());
+                    client.getData().usingWatcher((Watcher) watchedEvent -> countDownLatch.countDown()).forPath(key + "/" + pre);
                     countDownLatch.await();
                 } catch (Exception e) {
                     log.error("", e);
@@ -106,32 +92,28 @@ public class ZookeeperLock {
      * @author: dengbin
      * @date: 2018/11/20 下午5:32
      */
-    public static String tryLock(String productId, String requestId, Integer times) throws InterruptedException, KeeperException, ExecutionException {
+    public static String tryLock(String productId, String requestId, Integer times) throws ExecutionException {
         log.info("productId:{} requestId:{} times:{}", productId, requestId, times);
         String lockKey = generateLockKey(productId);
-        //判断加锁的父节点是否存在，若不存在，则先新建
-        if (zk.exists(lockKey, false) == null) {
-            zk.create(lockKey, lockKey.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-            log.info("create node {}", lockKey);
-        }
         String res = null;
         //通过callable和futureTask来执行加锁，可以定时
-        FutureTask<String> task = new FutureTask<>(() -> lock(lockKey, productId));
-        new Thread(task).start();
+        Future<String> task = executor.submit(() -> lock(lockKey, productId));
         try {
             //times为超时时间，单位为秒
             res = task.get(times, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.info("timeout productId:{} requestId:{} times:{} res:{}", productId, requestId, times, res);
             e.printStackTrace();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
         return res;
     }
 
-    public static void main(String[] args) throws InterruptedException, ExecutionException, KeeperException {
+    public static void main(String[] args) {
         for (int i = 0; i < 10; ++i) {
-            new Thread(() -> {
-                String res = null;
+            executor.execute(() -> {
+                String res;
                 try {
                     res = tryLock("999", "dengbin", 5000);
                     if (res != null) {
@@ -140,15 +122,11 @@ public class ZookeeperLock {
                     } else {
                         System.out.println("error");
                     }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (KeeperException e) {
-                    e.printStackTrace();
-                } catch (ExecutionException e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
+            });
 
-            }).start();
         }
     }
 
@@ -159,7 +137,7 @@ public class ZookeeperLock {
      */
     public static Boolean unLock(String nodeName) {
         try {
-            zk.delete(nodeName, 0);
+            client.delete().forPath(nodeName);
             log.info("delete node-{}", nodeName);
         } catch (Exception e) {
             log.error("", e);
