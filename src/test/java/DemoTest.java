@@ -5,8 +5,6 @@ import org.apache.curator.framework.recipes.locks.InterProcessMutex;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * @program: zookeeperlock
@@ -62,10 +60,10 @@ public class DemoTest {
 
         client.start();
 
-//创建分布式锁, 锁空间的根节点路径为/curator/lock
+//创建分布式锁, 锁空间的根节点路径为/curator/cn.dengbin97.lock.lock
 
 
-        InterProcessMutex mutex = new InterProcessMutex(client, "/lock");
+        InterProcessMutex mutex = new InterProcessMutex(client, "/cn/dengbin97/lock/lock");
 
         mutex.acquire();
 

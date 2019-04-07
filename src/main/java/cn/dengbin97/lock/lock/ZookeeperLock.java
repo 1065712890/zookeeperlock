@@ -1,3 +1,5 @@
+package cn.dengbin97.lock.lock;
+
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -17,7 +19,7 @@ import java.util.concurrent.*;
  **/
 
 @Slf4j
-public class ZookeeperLock2 {
+public class ZookeeperLock {
     private static CuratorFramework client;
 
     private static final String LOCK_KEY = "/DB_ZOOKEEPER_LOCK_";
@@ -29,7 +31,7 @@ public class ZookeeperLock2 {
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         client =
                 CuratorFrameworkFactory.newClient(
-                        "localhost:2181",
+                        "localhost:2181,localhost:2182,localhost:2183",
                         5000,
                         3000,
                         retryPolicy);
@@ -103,9 +105,7 @@ public class ZookeeperLock2 {
             res = task.get(times, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.info("timeout productId:{} requestId:{} times:{} res:{}", productId, requestId, times, res);
-            e.printStackTrace();
         } catch (InterruptedException e) {
-            e.printStackTrace();
         }
         return res;
     }
