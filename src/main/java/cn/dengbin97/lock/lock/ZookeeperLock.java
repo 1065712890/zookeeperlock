@@ -31,7 +31,7 @@ public class ZookeeperLock {
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         client =
                 CuratorFrameworkFactory.newClient(
-                        "localhost:2181,localhost:2182,localhost:2183",
+                        "localhost:2181",
                         5000,
                         3000,
                         retryPolicy);
@@ -94,17 +94,17 @@ public class ZookeeperLock {
      * @author: dengbin
      * @date: 2018/11/20 下午5:32
      */
-    public static String tryLock(String productId, String requestId, Integer times) throws ExecutionException {
-        log.info("productId:{} requestId:{} times:{}", productId, requestId, times);
+    public static String tryLock(String productId, String requestId, Integer time) throws ExecutionException {
+        log.info("productId:{} requestId:{} times:{}", productId, requestId, time);
         String lockKey = generateLockKey(productId);
         String res = null;
         //通过callable和futureTask来执行加锁，可以定时
         Future<String> task = executor.submit(() -> lock(lockKey, productId));
         try {
-            //times为超时时间，单位为秒
-            res = task.get(times, TimeUnit.SECONDS);
+            //time为超时时间，单位为秒
+            res = task.get(time, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.info("timeout productId:{} requestId:{} times:{} res:{}", productId, requestId, times, res);
+            log.info("timeout productId:{} requestId:{} times:{} res:{}", productId, requestId, time, res);
         } catch (InterruptedException e) {
         }
         return res;
